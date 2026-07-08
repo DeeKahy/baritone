@@ -23,6 +23,7 @@ import baritone.api.event.events.PlayerUpdateEvent;
 import baritone.api.event.events.SprintStateEvent;
 import baritone.api.event.events.type.EventState;
 import baritone.behavior.LookBehavior;
+import baritone.utils.InputOverrideHandler;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.world.entity.player.Abilities;
 import net.minecraft.world.entity.player.Input;
@@ -71,6 +72,26 @@ public class MixinClientPlayerEntity {
         IBaritone baritone = BaritoneAPI.getProvider().getBaritoneForPlayer((LocalPlayer) (Object) this);
         if (baritone != null) {
             baritone.getGameEventHandler().onPlayerUpdate(new PlayerUpdateEvent(EventState.PRE));
+        }
+    }
+
+    /**
+     * Re-assert our input override just before the player's movement runs. This point is reached after
+     * mods like Tweakeroo's free camera have (at the head of tick) swapped the player's input out for a
+     * dummy to freeze the body while the camera detaches. Restoring our input here lets the bot keep
+     * pathing while the free camera flies around freely on WASD.
+     */
+    @Inject(
+            method = "tick",
+            at = @At(
+                    value = "INVOKE",
+                    target = "net/minecraft/client/player/AbstractClientPlayer.tick()V"
+            )
+    )
+    private void baritone$maintainInputOverrideInFreecam(CallbackInfo ci) {
+        IBaritone baritone = BaritoneAPI.getProvider().getBaritoneForPlayer((LocalPlayer) (Object) this);
+        if (baritone != null) {
+            ((InputOverrideHandler) baritone.getInputOverrideHandler()).maintainInputOverrideForTick();
         }
     }
 

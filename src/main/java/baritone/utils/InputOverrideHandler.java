@@ -106,6 +106,20 @@ public final class InputOverrideHandler extends Behavior implements IInputOverri
         // gotta do it this way, or else it constantly thinks you're beginning a double tap W sprint lol
     }
 
+    /**
+     * Re-applies our movement input to the player if we are currently in control of it. Mods such as
+     * Tweakeroo's free camera swap the player's input out for a dummy at the head of
+     * {@code LocalPlayer.tick()} so the body stays put while the camera detaches, which also stops the
+     * bot. This is called from {@code MixinClientPlayerEntity} just before the player's movement runs,
+     * so pathing continues while the free camera is active. When we are not in control the swap is left
+     * alone, so free camera behaves normally when you are not botting.
+     */
+    public final void maintainInputOverrideForTick() {
+        if (inControl() && ctx.player().input.getClass() != PlayerMovementInput.class) {
+            ctx.player().input = new PlayerMovementInput(this);
+        }
+    }
+
     private boolean inControl() {
         for (Input input : new Input[]{Input.MOVE_FORWARD, Input.MOVE_BACK, Input.MOVE_LEFT, Input.MOVE_RIGHT, Input.SNEAK, Input.JUMP}) {
             if (isInputForcedDown(input)) {
