@@ -21,97 +21,61 @@ import baritone.api.BaritoneAPI;
 import baritone.api.Settings;
 import baritone.utils.accessor.IEntityRenderManager;
 import baritone.utils.accessor.IRenderPipelines;
-import baritone.utils.accessor.IRenderType;
+import com.mojang.blaze3d.PrimitiveTopology;
+import com.mojang.blaze3d.buffers.GpuBuffer;
+import com.mojang.blaze3d.buffers.GpuBufferSlice;
 import com.mojang.blaze3d.pipeline.BlendFunction;
 import com.mojang.blaze3d.pipeline.ColorTargetState;
 import com.mojang.blaze3d.pipeline.DepthStencilState;
 import com.mojang.blaze3d.pipeline.RenderPipeline;
+import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.platform.CompareOp;
-import com.mojang.blaze3d.platform.DestFactor;
-import com.mojang.blaze3d.platform.SourceFactor;
-import com.mojang.blaze3d.vertex.*;
+import com.mojang.blaze3d.systems.RenderPass;
+import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.blaze3d.vertex.BufferBuilder;
+import com.mojang.blaze3d.vertex.ByteBufferBuilder;
+import com.mojang.blaze3d.vertex.DefaultVertexFormat;
+import com.mojang.blaze3d.vertex.MeshData;
+import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.RenderPipelines;
 import net.minecraft.client.renderer.blockentity.BeaconRenderer;
-import net.minecraft.client.renderer.rendertype.RenderSetup;
-import net.minecraft.client.renderer.rendertype.RenderType;
-import net.minecraft.client.renderer.rendertype.RenderTypes;
+import net.minecraft.client.renderer.texture.AbstractTexture;
 import net.minecraft.client.renderer.texture.OverlayTexture;
 import net.minecraft.resources.Identifier;
-import net.minecraft.util.Util;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
+import org.joml.Matrix4f;
 
 import java.awt.*;
-import java.util.function.BiFunction;
+import java.nio.ByteBuffer;
+import java.util.Optional;
+import java.util.OptionalDouble;
 
 public interface IRenderer {
 
-    Tesselator tessellator = Tesselator.getInstance();
+    IRenderPipelines PIPELINES = (IRenderPipelines) new RenderPipelines();
     IEntityRenderManager renderManager = (IEntityRenderManager) Minecraft.getInstance().getEntityRenderDispatcher();
     Settings settings = BaritoneAPI.getSettings();
-    BlendFunction BARITONE_LINES_BLEND = new BlendFunction(
-        SourceFactor.SRC_ALPHA,
-        DestFactor.ONE_MINUS_SRC_ALPHA,
-        SourceFactor.ONE,
-        DestFactor.ZERO
-    );
 
-    RenderPipeline.Snippet BARITONE_LINES_SNIPPET = RenderPipeline.builder(((IRenderPipelines) new RenderPipelines()).getLinesSnippet())
-        .withColorTargetState(new ColorTargetState(BARITONE_LINES_BLEND))
-        .withDepthStencilState(new DepthStencilState(CompareOp.LESS_THAN_OR_EQUAL, false))
-        .withCull(false)
-        .buildSnippet();
+    RenderPipeline LINES_NO_DEPTH = PIPELINES.baritone$registerPipeline(
+            RenderPipeline.builder(PIPELINES.getLinesSnippet())
+                    .withLocation("pipeline/baritone_lines_no_depth")
+                    .withDepthStencilState(new DepthStencilState(CompareOp.ALWAYS_PASS, false))
+                    .build());
 
-    RenderPipeline.Snippet BARITONE_BEACON_BEAM_SNIPPET = RenderPipeline.builder(((IRenderPipelines) new RenderPipelines()).getMatricesFogSnippet())
-            .withVertexShader("core/rendertype_beacon_beam")
-            .withFragmentShader("core/rendertype_beacon_beam")
-            .withSampler("Sampler0")
-            .withVertexFormat(DefaultVertexFormat.BLOCK, VertexFormat.Mode.QUADS)
-            .buildSnippet();
+    RenderPipeline BEACON_BEAM_OPAQUE_NO_DEPTH = PIPELINES.baritone$registerPipeline(
+            RenderPipeline.builder(PIPELINES.getBeaconBeamSnippet())
+                    .withLocation("pipeline/baritone_beacon_beam_opaque")
+                    .withDepthStencilState(new DepthStencilState(CompareOp.ALWAYS_PASS, false))
+                    .build());
 
-    RenderPipeline BEACON_BEAM_OPAQUE = ((IRenderPipelines) new RenderPipelines()).baritone$registerPipeline(RenderPipeline.builder(BARITONE_BEACON_BEAM_SNIPPET)
-            .withLocation("pipeline/baritone_beacon_beam_opaque")
-            .withColorTargetState(ColorTargetState.DEFAULT)
-            .withDepthStencilState(new DepthStencilState(CompareOp.ALWAYS_PASS, false))
-            .withCull(true)
-            .build());
-
-    RenderPipeline BEACON_BEAM_TRANSLUCENT = ((IRenderPipelines) new RenderPipelines()).baritone$registerPipeline(RenderPipeline.builder(BARITONE_BEACON_BEAM_SNIPPET)
-            .withLocation("pipeline/baritone_beacon_beam_translucent")
-            .withColorTargetState(new ColorTargetState(BlendFunction.TRANSLUCENT))
-            .withDepthStencilState(new DepthStencilState(CompareOp.ALWAYS_PASS, false))
-            .withCull(true)
-            .build());
-
-    RenderType linesWithDepthRenderType = ((IRenderType) RenderTypes.lines()).createRenderType(
-        "renderType/baritone_lines_with_depth",
-        RenderSetup.builder(RenderPipeline.builder(BARITONE_LINES_SNIPPET)
-            .withLocation("pipelines/baritone_lines_with_depth")
-            .withDepthStencilState(new DepthStencilState(CompareOp.LESS_THAN_OR_EQUAL, false))
-            .build())
-            .bufferSize(256)
-            .createRenderSetup()
-    );
-    RenderType linesNoDepthRenderType = ((IRenderType) RenderTypes.lines()).createRenderType(
-        "renderType/baritone_lines_no_depth",
-        RenderSetup.builder(RenderPipeline.builder(BARITONE_LINES_SNIPPET)
-                .withLocation("pipelines/baritone_lines_no_depth")
-                .withDepthStencilState(new DepthStencilState(CompareOp.ALWAYS_PASS, false))
-                .build())
-            .bufferSize(256)
-            .createRenderSetup()
-    );
-
-
-    BiFunction<Identifier, Boolean, RenderType> BEACON_BEAM = Util.memoize(
-            (identifier, boolean_) -> ((IRenderType) RenderTypes.beaconBeam(BeaconRenderer.BEAM_LOCATION, boolean_)).createRenderType(
-                    boolean_ ? "renderType/baritone_beacon_beam_translucent" : "renderType/baritone_beacon_beam_opaque",
-            RenderSetup.builder(boolean_ ? BEACON_BEAM_TRANSLUCENT : BEACON_BEAM_OPAQUE)
-                    .withTexture("Sampler0", identifier)
-                    .sortOnUpload()
-                    .createRenderSetup())
-    );
+    RenderPipeline BEACON_BEAM_TRANSLUCENT_NO_DEPTH = PIPELINES.baritone$registerPipeline(
+            RenderPipeline.builder(PIPELINES.getBeaconBeamSnippet())
+                    .withLocation("pipeline/baritone_beacon_beam_translucent")
+                    .withColorTargetState(new ColorTargetState(BlendFunction.TRANSLUCENT))
+                    .withDepthStencilState(new DepthStencilState(CompareOp.ALWAYS_PASS, false))
+                    .build());
 
     float[] color = new float[]{1.0F, 1.0F, 1.0F, 255.0F};
 
@@ -125,32 +89,61 @@ public interface IRenderer {
 
     static BufferBuilder startLines(Color color, float alpha) {
         glColor(color, alpha);
-        return tessellator.begin(VertexFormat.Mode.LINES, DefaultVertexFormat.POSITION_COLOR_NORMAL_LINE_WIDTH);
+        return new BufferBuilder(VertexBuffer.BUFFER, PrimitiveTopology.LINES, DefaultVertexFormat.POSITION_COLOR_NORMAL_LINE_WIDTH);
     }
 
     static BufferBuilder startLines(Color color) {
         return startLines(color, .4f);
     }
 
-    static void endLines(BufferBuilder bufferBuilder, boolean ignoredDepth) {
+    static void endLines(BufferBuilder bufferBuilder, boolean ignoreDepth) {
         MeshData meshData = bufferBuilder.build();
         if (meshData != null) {
-            if (ignoredDepth) {
-                linesNoDepthRenderType.draw(meshData);
-            } else {
-                linesWithDepthRenderType.draw(meshData);
+            try (meshData) {
+                render(meshData, ignoreDepth ? LINES_NO_DEPTH : RenderPipelines.LINES, null);
             }
         }
     }
 
     static BufferBuilder startBlockQuads() {
-        return tessellator.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.BLOCK);
+        return new BufferBuilder(VertexBuffer.BUFFER, PrimitiveTopology.QUADS, DefaultVertexFormat.BLOCK);
     }
 
-    static void endBuffer(BufferBuilder bufferBuilder, RenderType renderType) {
+    static void endBeaconBuffer(BufferBuilder bufferBuilder, Identifier texture, boolean translucent, boolean ignoreDepth) {
         MeshData meshData = bufferBuilder.build();
         if (meshData != null) {
-            renderType.draw(meshData);
+            try (meshData) {
+                RenderPipeline pipeline = translucent
+                        ? (ignoreDepth ? BEACON_BEAM_TRANSLUCENT_NO_DEPTH : RenderPipelines.BEACON_BEAM_TRANSLUCENT)
+                        : (ignoreDepth ? BEACON_BEAM_OPAQUE_NO_DEPTH : RenderPipelines.BEACON_BEAM_OPAQUE);
+                render(meshData, pipeline, texture);
+            }
+        }
+    }
+
+    static void render(MeshData meshData, RenderPipeline pipeline, Identifier texture) {
+        MeshData.DrawState drawState = meshData.drawState();
+        ByteBuffer vertexData = meshData.vertexBuffer();
+        int size = vertexData.remaining();
+        GpuBuffer vertexBuffer = VertexBuffer.upload(vertexData);
+        RenderSystem.AutoStorageIndexBuffer indexBuffer = RenderSystem.getSequentialBuffer(drawState.primitiveTopology());
+        GpuBuffer indices = indexBuffer.getBuffer(drawState.indexCount());
+        RenderTarget mainTarget = Minecraft.getInstance().gameRenderer.mainRenderTarget();
+        GpuBufferSlice transform = RenderSystem.getDynamicUniforms().writeTransform(new Matrix4f());
+        try (RenderPass pass = RenderSystem.getDevice().createCommandEncoder().createRenderPass(
+                () -> "Baritone",
+                mainTarget.getColorTextureView(), Optional.empty(),
+                mainTarget.getDepthTextureView(), OptionalDouble.empty())) {
+            pass.setPipeline(pipeline);
+            RenderSystem.bindDefaultUniforms(pass);
+            pass.setUniform("DynamicTransforms", transform);
+            if (texture != null) {
+                AbstractTexture tex = Minecraft.getInstance().getTextureManager().getTexture(texture);
+                pass.bindTexture("Sampler0", tex.getTextureView(), tex.getSampler());
+            }
+            pass.setVertexBuffer(0, vertexBuffer.slice(0L, size));
+            pass.setIndexBuffer(indices, indexBuffer.type());
+            pass.drawIndexed(drawState.indexCount(), 1, 0, 0, 0);
         }
     }
 
@@ -233,11 +226,30 @@ public interface IRenderer {
                 .setNormal(pose, nx, ny, nz);
     }
 
-    static RenderType beaconBeam(Identifier identifier, boolean bl) {
-        return BEACON_BEAM.apply(identifier, bl);
+    static Identifier beaconBeamTexture() {
+        return BeaconRenderer.BEAM_LOCATION;
     }
 
-    static RenderType beaconBeam(Identifier identifier, boolean bl, boolean ignoreDepth) {
-        return ignoreDepth ? beaconBeam(identifier, bl) : RenderTypes.beaconBeam(identifier, bl);
+    /**
+     * Reusable CPU-side vertex staging buffer and its GPU counterpart. Replaces the removed
+     * {@code Tesselator}/{@code RenderType.draw(MeshData)} pipeline from Minecraft 26.1.
+     */
+    final class VertexBuffer {
+        static final ByteBufferBuilder BUFFER = new ByteBufferBuilder(262144);
+        private static GpuBuffer cached;
+
+        private VertexBuffer() {}
+
+        static GpuBuffer upload(ByteBuffer data) {
+            int size = data.remaining();
+            if (cached == null || cached.size() < size) {
+                if (cached != null) {
+                    cached.close();
+                }
+                cached = RenderSystem.getDevice().createBuffer(() -> "Baritone vertex buffer", 40, size);
+            }
+            RenderSystem.getDevice().createCommandEncoder().writeToBuffer(cached.slice(0L, size), data);
+            return cached;
+        }
     }
 }

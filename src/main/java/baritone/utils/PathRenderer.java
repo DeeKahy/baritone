@@ -74,8 +74,8 @@ public final class PathRenderer implements IRenderer {
         if (ctx.world() == null) {
             return;
         }
-        if (ctx.minecraft().screen instanceof GuiClick) {
-            ((GuiClick) ctx.minecraft().screen).onRender(event.getModelViewStack(), event.getProjectionMatrix());
+        if (ctx.minecraft().gui.screen() instanceof GuiClick) {
+            ((GuiClick) ctx.minecraft().gui.screen()).onRender(event.getModelViewStack(), event.getProjectionMatrix());
         }
 
         final float partialTicks = event.getPartialTicks();
@@ -376,7 +376,7 @@ public final class PathRenderer implements IRenderer {
         }
         stack.popPose();
 
-        IRenderer.endBuffer(bufferBuilder, IRenderer.beaconBeam(BeaconRenderer.BEAM_LOCATION, translucent, settings.renderGoalIgnoreDepth.value));
+        IRenderer.endBeaconBuffer(bufferBuilder, BeaconRenderer.BEAM_LOCATION, translucent, settings.renderGoalIgnoreDepth.value);
     }
 
     private static void emitBeaconShell(BufferBuilder bufferBuilder, PoseStack.Pose pose, int color, float minY, float maxY,

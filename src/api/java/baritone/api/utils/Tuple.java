@@ -15,14 +15,35 @@
  * along with Baritone.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-package baritone.utils.accessor;
+package baritone.api.utils;
 
-import com.mojang.blaze3d.pipeline.RenderPipeline;
+/**
+ * A simple pair of two values. Replaces {@code net.minecraft.util.Tuple}, which was removed in
+ * Minecraft 26.2, keeping the same API so existing call sites remain unchanged.
+ */
+public class Tuple<A, B> {
 
-public interface IRenderPipelines {
-    RenderPipeline.Snippet getLinesSnippet();
-    RenderPipeline.Snippet getMatricesFogSnippet();
-    RenderPipeline.Snippet getBeaconBeamSnippet();
+    private A a;
+    private B b;
 
-    RenderPipeline baritone$registerPipeline(RenderPipeline pipeline);
+    public Tuple(A a, B b) {
+        this.a = a;
+        this.b = b;
+    }
+
+    public A getA() {
+        return this.a;
+    }
+
+    public B getB() {
+        return this.b;
+    }
+
+    public void setA(A a) {
+        this.a = a;
+    }
+
+    public void setB(B b) {
+        this.b = b;
+    }
 }
