@@ -1,0 +1,122 @@
+name: Auto Build & Release
+
+# Pulls the latest baritone from upstream, builds it, and publishes a release
+# tagged with the Minecraft version. Runs daily, on demand, or on push.
+# Upstream's default branch is per-MC-version (26.1, 26.2, ...); we follow
+# whatever it marks as default so this keeps working across version bumps.
+
+on:
+  schedule:
+    - cron: '30 6 * * *'
+  workflow_dispatch:
+  push:
+    branches: [ master ]
+
+concurrency:
+  group: auto-release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  UPSTREAM: https://github.com/MeteorDevelopment/baritone.git
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout this repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Sync latest code from upstream
+        id: sync
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          cp .github/workflows/auto-release.yml "$RUNNER_TEMP/auto-release.yml"
+
+          git remote add upstream "$UPSTREAM"
+          DEFAULT=$(git ls-remote --symref upstream HEAD | sed -n 's#^ref: refs/heads/\(.*\)\tHEAD#\1#p')
+          git fetch upstream "$DEFAULT"
+
+          git reset --hard "upstream/$DEFAULT"
+          rm -f .github/workflows/*.yml
+          mkdir -p .github/workflows
+          cp "$RUNNER_TEMP/auto-release.yml" .github/workflows/auto-release.yml
+
+          SHORT=$(git rev-parse --short upstream/$DEFAULT)
+          echo "short_sha=$SHORT" >> "$GITHUB_OUTPUT"
+
+          git add -A
+          git commit -m "Mirror upstream @ $SHORT (auto)" || echo "Nothing to commit"
+          git push --force origin HEAD:master
+
+      - name: Read Minecraft version
+        id: mc
+        run: |
+          set -euo pipefail
+          MC=$(grep -E '^minecraft_version=' gradle.properties | cut -d= -f2 | tr -d '[:space:]')
+          echo "version=$MC" >> "$GITHUB_OUTPUT"
+
+      - name: Skip if already released
+        id: guard
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="mc${{ steps.mc.outputs.version }}-${{ steps.sync.outputs.short_sha }}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Baritone's ProGuard step reads <java.home>/jmods, so it needs a JDK that
+      # ships the jmods dir. The Temurin runner image doesn't; Zulu does.
+      - name: Set up JDK
+        if: steps.guard.outputs.skip == 'false'
+        uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: '25'
+
+      - name: Set up Gradle
+        if: steps.guard.outputs.skip == 'false'
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build
+        if: steps.guard.outputs.skip == 'false'
+        run: |
+          chmod +x ./gradlew
+          ./gradlew build
+
+      - name: Collect jars
+        if: steps.guard.outputs.skip == 'false'
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          # Fabric mod jars only; skip buildSrc, non-fabric variants and dev/shadow.
+          find . -path '*/build/libs/*fabric*.jar' \
+            ! -name '*-dev*.jar' ! -name '*-sources.jar' ! -name '*-javadoc.jar' \
+            -exec cp -n {} out/ \;
+          ls -la out
+
+      - name: Create release
+        if: steps.guard.outputs.skip == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          MC="${{ steps.mc.outputs.version }}"
+          SHORT="${{ steps.sync.outputs.short_sha }}"
+          TAG="${{ steps.guard.outputs.tag }}"
+          gh release create "$TAG" out/*.jar \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Meteor Baritone $MC (build ${{ github.run_number }})" \
+            --notes "Minecraft $MC, built from baritone $SHORT. For Meteor, put baritone-standalone-fabric-*.jar in your Fabric mods folder."
